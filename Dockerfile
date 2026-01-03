@@ -38,7 +38,7 @@ RUN npm run build
 WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
-# 6. 部署 Doubao Free API (Node - 4000)
+# 6. 部署 Doubao Free API (Node - 8000)
 WORKDIR /app/doubao
 RUN git clone https://github.com/Bitsea1/doubao-free-api.git .
 RUN npm install
@@ -49,7 +49,8 @@ WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-ENV PORT=8000
-EXPOSE 8000
+# ⚠️ 关键修改：告诉 Koyeb 现在入口是 8080
+ENV PORT=8080
+EXPOSE 8080
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
