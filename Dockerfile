@@ -44,7 +44,15 @@ RUN git clone https://github.com/Bitsea1/doubao-free-api.git .
 RUN npm install
 RUN npm run build
 
-# 7. 配置 Nginx 和 Supervisor
+# 7. 部署 Grok2API (Python - 8001)
+# 对应第四个文件项目
+WORKDIR /app/grok
+RUN git clone https://github.com/chenyme/grok2api.git .
+RUN pip install --no-cache-dir -r requirements.txt
+# 创建数据目录以防万一
+RUN mkdir -p data logs && chmod -R 777 data logs
+
+# 8. 配置 Nginx 和 Supervisor
 WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
