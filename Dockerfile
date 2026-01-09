@@ -38,7 +38,7 @@ RUN npm run build
 WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
-# 6. 部署 Gemini 逆向 (Python - 8000) [原 Doubao 已替换]
+# 6. 部署 Gemini 逆向 (Python - 8000)
 WORKDIR /app/gemini
 RUN git clone https://github.com/erxiansheng/gemininixiang.git .
 RUN pip install --no-cache-dir -r requirements.txt
