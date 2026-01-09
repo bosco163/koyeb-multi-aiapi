@@ -45,11 +45,11 @@ WORKDIR /app/gemini
 RUN git clone https://github.com/erxiansheng/gemininixiang.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ⚠️ 这里直接修改源代码，无视环境变量
-# 将 admin 改为你想要的用户名
-# 将 1 改为你想要的密码
-# API_KEY 随便填个 1 即可
-RUN sed -i 's/ADMIN_USERNAME = .*/ADMIN_USERNAME = "admin"/' server.py && \
+# ⚠️ 这里是修改重点
+# 1. 替换 http://localhost:8000 为 https://lhy-db-tts.koyeb.app
+# 2. 硬编码账号密码
+RUN sed -i 's|http://localhost:8000|https://lhy-db-tts.koyeb.app|g' server.py && \
+    sed -i 's/ADMIN_USERNAME = .*/ADMIN_USERNAME = "admin"/' server.py && \
     sed -i 's/ADMIN_PASSWORD = .*/ADMIN_PASSWORD = "1"/' server.py && \
     sed -i 's/API_KEY = .*/API_KEY = "1"/' server.py
 
@@ -58,7 +58,6 @@ WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# 告诉 Koyeb 入口是 8080
 ENV PORT=8080
 EXPOSE 8080
 
