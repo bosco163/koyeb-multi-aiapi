@@ -10,45 +10,45 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. 安装 Node.js 20 (给 Qwen 用)
+# 2. 安装 Node.js 20
 RUN mkdir -p /etc/apt/keyrings
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
 RUN echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
 RUN apt-get update && apt-get install -y nodejs
 
-# 3. 部署 Edge TTS (Python - 5050)
+# 3. 部署 Edge TTS
 WORKDIR /app/tts
 RUN git clone https://github.com/travisvn/openai-edge-tts.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. 部署 DeepSeek2API (Python - 5001)
+# 4. 部署 DeepSeek2API
 WORKDIR /app/deepseek
 RUN git clone https://github.com/iidamie/deepseek2api.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. 部署 Qwen2API (Node - 3000)
+# 5. 部署 Qwen2API
 WORKDIR /app/qwen
 RUN git clone https://github.com/Rfym21/Qwen2API.git .
 RUN npm install
-# 编译前端
 WORKDIR /app/qwen/public
 RUN npm install
 RUN npm run build
-# 权限处理
 WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
 # =========================================================
-# 6. 部署 Gemini 逆向 (Python - 8000) - 硬编码配置区域
+# 6. 部署 Gemini 逆向 - 修复 Base URL 显示问题
 # =========================================================
 WORKDIR /app/gemini
 RUN git clone https://github.com/erxiansheng/gemininixiang.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ⚠️ 这里是修改重点
-# 1. 替换 http://localhost:8000 为 https://lhy-db-tts.koyeb.app
-# 2. 硬编码账号密码
-RUN sed -i 's|http://localhost:8000|https://lhy-db-tts.koyeb.app|g' server.py && \
+# ⚠️ 强力修复版
+# 1. 强制替换 "Base URL: [任何变量] v1" 这一整段逻辑
+# 2. 额外替换 request.host_url，防止其他地方也用错
+# 3. 写入账号密码
+RUN sed -i 's|Base URL: .*v1|Base URL: https://lhy-db-tts.koyeb.app/v1|g' server.py && \
+    sed -i 's|request.host_url|"https://lhy-db-tts.koyeb.app/"|g' server.py && \
     sed -i 's/ADMIN_USERNAME = .*/ADMIN_USERNAME = "admin"/' server.py && \
     sed -i 's/ADMIN_PASSWORD = .*/ADMIN_PASSWORD = "1"/' server.py && \
     sed -i 's/API_KEY = .*/API_KEY = "1"/' server.py
