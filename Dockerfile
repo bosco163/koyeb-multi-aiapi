@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. 安装 Node.js 20
+# 2. 安装 Node.js 20 (给 Qwen 用)
 RUN mkdir -p /etc/apt/keyrings
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
 RUN echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
@@ -38,11 +38,17 @@ RUN npm run build
 WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
-# 6. 部署 Gemini 逆向 (Python - 8000)
+# =========================================================
+# 6. 部署 Gemini 逆向 (Python - 8000) - 硬编码配置区域
+# =========================================================
 WORKDIR /app/gemini
 RUN git clone https://github.com/erxiansheng/gemininixiang.git .
 RUN pip install --no-cache-dir -r requirements.txt
-# 直接修改代码中的配置
+
+# ⚠️ 这里直接修改源代码，无视环境变量
+# 将 admin 改为你想要的用户名
+# 将 1 改为你想要的密码
+# API_KEY 随便填个 1 即可
 RUN sed -i 's/ADMIN_USERNAME = .*/ADMIN_USERNAME = "admin"/' server.py && \
     sed -i 's/ADMIN_PASSWORD = .*/ADMIN_PASSWORD = "1"/' server.py && \
     sed -i 's/API_KEY = .*/API_KEY = "1"/' server.py
@@ -52,7 +58,7 @@ WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
-# ⚠️ 关键修改：告诉 Koyeb 现在入口是 8080
+# 告诉 Koyeb 入口是 8080
 ENV PORT=8080
 EXPOSE 8080
 
