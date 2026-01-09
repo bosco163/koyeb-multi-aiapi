@@ -38,11 +38,14 @@ RUN npm run build
 WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
-# 6. 部署 Doubao Free API (Node - 8000)
-WORKDIR /app/doubao
-RUN git clone https://github.com/Bitsea1/doubao-free-api.git .
-RUN npm install
-RUN npm run build
+# 6. 部署 Gemini 逆向 (Python - 8000) [原 Doubao 已替换]
+WORKDIR /app/gemini
+RUN git clone https://github.com/erxiansheng/gemininixiang.git .
+RUN pip install --no-cache-dir -r requirements.txt
+# 直接修改代码中的配置
+RUN sed -i 's/ADMIN_USERNAME = .*/ADMIN_USERNAME = "admin"/' server.py && \
+    sed -i 's/ADMIN_PASSWORD = .*/ADMIN_PASSWORD = "1"/' server.py && \
+    sed -i 's/API_KEY = .*/API_KEY = "1"/' server.py
 
 # 8. 配置 Nginx 和 Supervisor
 WORKDIR /app
