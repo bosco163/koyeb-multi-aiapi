@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 2. 安装 Node.js 20
+# 2. 安装 Node.js 20 (保留，给 Qwen 用)
 RUN mkdir -p /etc/apt/keyrings
 RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
 RUN echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list
@@ -37,21 +37,25 @@ WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
 # =========================================================
-# 6. 部署 Gemini 逆向 - 修复 Base URL 显示问题
+# 6. 部署 Gemini 逆向 - 更新为 chyinan 版本
 # =========================================================
 WORKDIR /app/gemini
-RUN git clone https://github.com/erxiansheng/gemininixiang.git .
+
+# 拉取新项目源码
+RUN git clone https://github.com/chyinan/gemininixiang.git .
+
+# 安装依赖
 RUN pip install --no-cache-dir -r requirements.txt
 
-# ⚠️ 强力修复版
-# 1. 强制替换 "Base URL: [任何变量] v1" 这一整段逻辑
-# 2. 额外替换 request.host_url，防止其他地方也用错
-# 3. 写入账号密码
-RUN sed -i 's|Base URL: .*v1|Base URL: https://lhy-db-tts.koyeb.app/v1|g' server.py && \
-    sed -i 's|request.host_url|"https://lhy-db-tts.koyeb.app/"|g' server.py && \
-    sed -i 's/ADMIN_USERNAME = .*/ADMIN_USERNAME = "admin"/' server.py && \
+# 配置修改 (适配现有环境)
+# 1. 修改端口为 8000 (这样 nginx.conf 就不需要改了，默认配置是 / -> 8000)
+# 2. 修改后台密码为 "1" (保持之前的习惯)
+# 3. 修改 API Key 为 "1"
+# 4. 替换 Base URL 显示文本 (可选，为了保持界面显示的一致性)
+RUN sed -i 's/PORT = [0-9]*/PORT = 8000/' server.py && \
     sed -i 's/ADMIN_PASSWORD = .*/ADMIN_PASSWORD = "1"/' server.py && \
-    sed -i 's/API_KEY = .*/API_KEY = "1"/' server.py
+    sed -i 's/API_KEY = .*/API_KEY = "1"/' server.py && \
+    sed -i 's|Base URL: .*v1|Base URL: https://lhy-db-tts.koyeb.app/v1|g' server.py
 
 # 8. 配置 Nginx 和 Supervisor
 WORKDIR /app
