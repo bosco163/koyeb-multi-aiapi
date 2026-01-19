@@ -36,11 +36,14 @@ RUN npm run build
 WORKDIR /app/qwen
 RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
+# =========================================================
 # 6. 部署 QwenChat2Api (新项目: /qw)
-#    这个项目支持多 Cookie 负载均衡，需要 COOKIE 环境变量
+#    已更新为你提供的仓库地址
+# =========================================================
 WORKDIR /app/qw
-RUN git clone https://github.com/QwenUniverse/QwenChat2Api.git .
+RUN git clone https://github.com/ckcoding/qwenchat2api.git .
 RUN npm install
+RUN npm audit fix || true
 
 # 7. 配置 Nginx 和 Supervisor
 WORKDIR /app
