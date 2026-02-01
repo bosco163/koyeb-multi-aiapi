@@ -21,9 +21,9 @@ WORKDIR /app/tts
 RUN git clone https://github.com/travisvn/openai-edge-tts.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. 部署 DeepSeek2API
+# 4. 部署 DeepSeek Free API (替换原来的DeepSeek2API)
 WORKDIR /app/deepseek
-RUN git clone https://github.com/iidamie/deepseek2api.git .
+RUN git clone https://github.com/Fu-Jie/deepseek-free-api.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # 5. 部署 Qwen2API (根目录服务)
@@ -38,7 +38,6 @@ RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
 # =========================================================
 # 6. 部署 QwenChat2Api (新项目: /qw)
-#    已更新为你提供的仓库地址
 # =========================================================
 WORKDIR /app/qw
 RUN git clone https://github.com/ckcoding/qwenchat2api.git .
