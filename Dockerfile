@@ -8,8 +8,6 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     build-essential \
-    net-tools \
-    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. 安装 Node.js 20
@@ -51,14 +49,8 @@ RUN npm audit fix || true
 WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY start.sh /app/start.sh
-RUN chmod +x /app/start.sh
-
-# 测试 Nginx 配置
-RUN nginx -t
 
 ENV PORT=8080
 EXPOSE 8080
 
-# 使用启动脚本
-CMD ["/app/start.sh"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
