@@ -8,6 +8,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     gnupg \
     build-essential \
+    net-tools \
+    lsof \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. 安装 Node.js 20
@@ -25,7 +27,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 WORKDIR /app/deepseek
 RUN git clone https://github.com/Fu-Jie/deepseek-free-api.git .
 RUN npm install
-# 必须构建项目
 RUN npm run build
 
 # 5. 部署 Qwen2API (根目录服务)
@@ -51,7 +52,12 @@ WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
+# 添加端口检查脚本
+COPY check-ports.sh /app/check-ports.sh
+RUN chmod +x /app/check-ports.sh
+
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# 先检查端口占用情况，然后启动
+CMD ["/bin/bash", "-c", "/app/check-ports.sh && /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
