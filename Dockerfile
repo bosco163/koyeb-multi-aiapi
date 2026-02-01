@@ -21,10 +21,12 @@ WORKDIR /app/tts
 RUN git clone https://github.com/travisvn/openai-edge-tts.git .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 4. 部署 DeepSeek Free API (这是一个Node.js项目)
+# 4. 部署 DeepSeek Free API
 WORKDIR /app/deepseek
 RUN git clone https://github.com/Fu-Jie/deepseek-free-api.git .
 RUN npm install
+# 必须构建项目
+RUN npm run build
 
 # 5. 部署 Qwen2API (根目录服务)
 WORKDIR /app/qwen
