@@ -51,8 +51,8 @@ RUN npm audit fix || true
 WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY health-check.sh /app/health-check.sh
-RUN chmod +x /app/health-check.sh
+COPY start.sh /app/start.sh
+RUN chmod +x /app/start.sh
 
 # 测试 Nginx 配置
 RUN nginx -t
@@ -60,4 +60,5 @@ RUN nginx -t
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# 使用启动脚本
+CMD ["/app/start.sh"]
