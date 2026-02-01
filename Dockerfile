@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     build-essential \
     net-tools \
-    lsof \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # 2. 安装 Node.js 20
@@ -51,13 +51,13 @@ RUN npm audit fix || true
 WORKDIR /app
 COPY nginx.conf /etc/nginx/sites-available/default
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY health-check.sh /app/health-check.sh
+RUN chmod +x /app/health-check.sh
 
-# 添加端口检查脚本
-COPY check-ports.sh /app/check-ports.sh
-RUN chmod +x /app/check-ports.sh
+# 测试 Nginx 配置
+RUN nginx -t
 
 ENV PORT=8080
 EXPOSE 8080
 
-# 先检查端口占用情况，然后启动
-CMD ["/bin/bash", "-c", "/app/check-ports.sh && /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
