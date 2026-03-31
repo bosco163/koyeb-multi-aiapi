@@ -48,6 +48,10 @@ RUN mkdir -p caches data logs && chmod -R 777 caches data logs
 
 FROM base
 
+# 7. Auto-switch 服务目录
+RUN mkdir -p /app/auto-switch
+COPY auto-switch/server.js /app/auto-switch/server.js
+
 # 8. 启动脚本
 RUN cat > /app/start-ds2api.sh << 'EOF'
 #!/bin/bash
@@ -69,6 +73,13 @@ cd /app/qwen
 exec npm start
 EOF
 RUN chmod +x /app/start-qwen.sh
+
+RUN cat > /app/start-auto-switch.sh << 'EOF'
+#!/bin/bash
+cd /app/auto-switch
+exec node server.js
+EOF
+RUN chmod +x /app/start-auto-switch.sh
 
 # 9. 配置 Nginx 和 Supervisor
 WORKDIR /app
