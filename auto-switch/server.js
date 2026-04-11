@@ -39,16 +39,29 @@ function buildDirectStatusResponse(res, statusCode) {
 // 5) [rm_sp] 可与以上规则混搭，例如：
 //    - baseModel[rm_sp][tk>=1000:targetModel]
 //    - baseModel[tk>=1000:targetModel][rm_sp]
+// 6) [er_sc:429] 若上游 200 但 empty return，则改为指定状态码
 function processModelString(modelStr, messages) {
   const rawModel = String(modelStr || '').trim();
   const removeLeadingSpace = /\[rm_sp\]/i.test(rawModel);
 
-  // 先把 [rm_sp] 从模型串中移除，避免影响后续 tk/pt 规则解析
-  modelStr = rawModel.replace(/\[rm_sp\]/gi, '').trim();
+  let emptyReturnStatusCode = null;
+  const erMatch = rawModel.match(/\[er_sc\s*:\s*(\d{3})\]/i);
+  if (erMatch) {
+    const code = parseInt(erMatch[1], 10);
+    if (code >= 100 && code <= 599) {
+      emptyReturnStatusCode = code;
+    }
+  }
+
+  // 先把 [rm_sp] / [er_sc:xxx] 从模型串中移除，避免影响后续 tk/pt 规则解析
+  modelStr = rawModel
+    .replace(/\[rm_sp\]/gi, '')
+    .replace(/\[er\s*:\s*\d{3}\]/gi, '')
+    .trim();
 
   const match = modelStr.match(/^([^[]+)\[([^:]+):([^\]]+)\]$/);
   if (!match) {
-    return { action: 'model', model: modelStr, removeLeadingSpace };
+    return { action: 'model', model: modelStr, removeLeadingSpace, emptyReturnStatusCode };
   }
 
   const baseModel = match[1].trim();
@@ -57,7 +70,7 @@ function processModelString(modelStr, messages) {
 
   const parsedConditions = parseConditions(conditionsStr);
   if (!parsedConditions.valid) {
-    return { action: 'model', model: modelStr, removeLeadingSpace };
+    return { action: 'model', model: modelStr, removeLeadingSpace, emptyReturnStatusCode };
   }
 
   const metrics = analyzeMessages(messages);
@@ -69,23 +82,24 @@ function processModelString(modelStr, messages) {
     targetStr,
     metrics,
     conditionMet,
-    removeLeadingSpace
+    removeLeadingSpace,
+    emptyReturnStatusCode
   }));
 
   if (!conditionMet) {
-    return { action: 'model', model: baseModel, removeLeadingSpace };
+    return { action: 'model', model: baseModel, removeLeadingSpace, emptyReturnStatusCode };
   }
 
   const statusMatch = targetStr.match(/^sc\s*=\s*(\d{3})$/i);
   if (statusMatch) {
     const statusCode = parseInt(statusMatch[1], 10);
     if (statusCode >= 100 && statusCode <= 599) {
-      return { action: 'status', statusCode, removeLeadingSpace };
+      return { action: 'status', statusCode, removeLeadingSpace, emptyReturnStatusCode };
     }
-    return { action: 'model', model: baseModel, removeLeadingSpace };
+    return { action: 'model', model: baseModel, removeLeadingSpace, emptyReturnStatusCode };
   }
 
-  return { action: 'model', model: targetStr, removeLeadingSpace };
+  return { action: 'model', model: targetStr, removeLeadingSpace, emptyReturnStatusCode };
 }
 
 function parseConditions(conditionsStr) {
@@ -243,6 +257,15 @@ function collectRequestBody(req) {
     req.on('data', chunk => chunks.push(chunk));
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
+  });
+}
+
+function collectResponseBody(stream) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    stream.on('data', chunk => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+    stream.on('end', () => resolve(Buffer.concat(chunks)));
+    stream.on('error', reject);
   });
 }
 
@@ -430,6 +453,148 @@ function applyRemoveLeadingSpaceToResponsePayload(payload, state) {
   return payload;
 }
 
+// ========== empty return 检测 ==========
+
+function hasNonEmptyString(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function extractTextFromContentArray(content) {
+  if (!Array.isArray(content)) return '';
+  let out = '';
+
+  for (const part of content) {
+    if (!part) continue;
+
+    if (typeof part === 'string') {
+      out += part;
+      continue;
+    }
+
+    if (typeof part.text === 'string') {
+      out += part.text;
+      continue;
+    }
+
+    if (typeof part.content === 'string') {
+      out += part.content;
+      continue;
+    }
+
+    if (typeof part.output_text === 'string') {
+      out += part.output_text;
+      continue;
+    }
+  }
+
+  return out;
+}
+
+function payloadHasVisibleContent(payload) {
+  if (!payload || typeof payload !== 'object') return false;
+
+  if (hasNonEmptyString(payload.content)) return true;
+  if (hasNonEmptyString(payload.text)) return true;
+  if (hasNonEmptyString(payload.output_text)) return true;
+  if (hasNonEmptyString(payload.reasoning_content)) return true;
+  if (hasNonEmptyString(payload.reasoning)) return true;
+
+  const directArrayText =
+    extractTextFromContentArray(payload.content) +
+    extractTextFromContentArray(payload.output);
+  if (directArrayText.trim() !== '') return true;
+
+  if (payload.message && typeof payload.message === 'object') {
+    if (payloadHasVisibleContent(payload.message)) return true;
+  }
+
+  if (payload.delta && typeof payload.delta === 'object') {
+    if (payloadHasVisibleContent(payload.delta)) return true;
+  }
+
+  if (Array.isArray(payload.choices)) {
+    for (const choice of payload.choices) {
+      if (!choice || typeof choice !== 'object') continue;
+      if (payloadHasVisibleContent(choice)) return true;
+      if (choice.message && payloadHasVisibleContent(choice.message)) return true;
+      if (choice.delta && payloadHasVisibleContent(choice.delta)) return true;
+    }
+  }
+
+  return false;
+}
+
+function detectEmptyReturnFromJsonBuffer(rawBuffer, contentType) {
+  if (!rawBuffer || rawBuffer.length === 0) {
+    return true;
+  }
+
+  const text = rawBuffer.toString('utf8');
+  const ct = String(contentType || '').toLowerCase();
+  const looksLikeJson =
+    ct.includes('application/json') ||
+    ct.includes('+json') ||
+    /^[\s\r\n]*[\[{]/.test(text);
+
+  if (!looksLikeJson) {
+    return false;
+  }
+
+  try {
+    const payload = JSON.parse(text);
+    return !payloadHasVisibleContent(payload);
+  } catch (_) {
+    return false;
+  }
+}
+
+function detectEmptyReturnFromSSEBuffer(rawBuffer) {
+  if (!rawBuffer || rawBuffer.length === 0) {
+    return true;
+  }
+
+  const text = rawBuffer.toString('utf8');
+  const events = text.split(/\r?\n\r?\n/);
+
+  for (const rawEvent of events) {
+    if (!rawEvent) continue;
+
+    const lines = rawEvent.split(/\r?\n/);
+    let joinedData = '';
+    let hasDataLine = false;
+
+    for (const line of lines) {
+      const match = line.match(/^data:\s?(.*)$/);
+      if (!match) continue;
+      hasDataLine = true;
+      joinedData += (joinedData ? '\n' : '') + match[1];
+    }
+
+    if (!hasDataLine) continue;
+    if (joinedData.trim() === '[DONE]') continue;
+
+    try {
+      const payload = JSON.parse(joinedData);
+      if (payloadHasVisibleContent(payload)) {
+        return false;
+      }
+    } catch (_) {
+      // 非 JSON 的 data 不作为 empty 判定依据
+    }
+  }
+
+  return true;
+}
+
+function buildEmptyReturnStatusResponse(res, statusCode) {
+  setCorsHeaders(res);
+  res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({
+    error: 'Empty Return',
+    message: 'Upstream returned 200 but no model content was produced'
+  }));
+}
+
 function processSSEEvent(rawEvent, state) {
   if (!rawEvent) return '';
 
@@ -477,24 +642,26 @@ function processSSEEvent(rawEvent, state) {
   }
 }
 
-function transformSSEText(chunkText, rmState, sseState) {
-  sseState.buffer += chunkText;
-
-  let output = '';
-
-  while (true) {
-    const match = sseState.buffer.match(/\r?\n\r?\n/);
-    if (!match) break;
-
-    const boundaryIndex = match.index;
-    const boundaryLength = match[0].length;
-    const rawEvent = sseState.buffer.slice(0, boundaryIndex);
-
-    sseState.buffer = sseState.buffer.slice(boundaryIndex + boundaryLength);
-    output += processSSEEvent(rawEvent, rmState) + '\n\n';
+function transformSSEBuffer(rawBuffer, rmState) {
+  if (!rawBuffer || rawBuffer.length === 0) {
+    return rawBuffer;
   }
 
-  return output;
+  const decoder = new StringDecoder('utf8');
+  let text = decoder.write(rawBuffer);
+  text += decoder.end();
+
+  const parts = text.split(/(\r?\n\r?\n)/);
+  let out = '';
+
+  for (let i = 0; i < parts.length; i += 2) {
+    const eventText = parts[i] || '';
+    const sep = parts[i + 1] || '';
+    if (!eventText && !sep) continue;
+    out += processSSEEvent(eventText, rmState) + sep;
+  }
+
+  return Buffer.from(out, 'utf8');
 }
 
 function transformBufferedResponse(rawBuffer, contentType, state) {
@@ -573,109 +740,53 @@ function pipeRawUpstreamResponse(upstreamRes, res, preferSSE) {
   });
 }
 
-function pipeUpstreamResponseWithRmSpSSE(upstreamRes, res) {
+async function pipeUpstreamResponseBufferedWithChecks(upstreamRes, res, preferSSE, removeLeadingSpace, emptyReturnStatusCode) {
   const responseHeaders = { ...upstreamRes.headers };
   responseHeaders['access-control-allow-origin'] = '*';
   delete responseHeaders['content-length'];
+  delete responseHeaders['transfer-encoding'];
 
-  res.writeHead(upstreamRes.statusCode || 500, responseHeaders);
+  const upstreamStatus = upstreamRes.statusCode || 500;
+  const rawBuffer = await collectResponseBody(upstreamRes);
+  const sse = isSSEResponse(upstreamRes.headers, preferSSE);
 
-  const rmState = createLeadingSpaceState();
-  const sseState = { buffer: '' };
-  const decoder = new StringDecoder('utf8');
+  if (emptyReturnStatusCode && upstreamStatus === 200) {
+    const isEmpty = sse
+      ? detectEmptyReturnFromSSEBuffer(rawBuffer)
+      : detectEmptyReturnFromJsonBuffer(rawBuffer, responseHeaders['content-type']);
 
-  let heartbeatInterval = setInterval(() => {
-    try {
-      res.write(': keep-alive\n\n');
-    } catch (_) {
-      clearInterval(heartbeatInterval);
+    if (isEmpty) {
+      console.warn(`[auto-switch] empty return detected, converting 200 -> ${emptyReturnStatusCode}`);
+      return buildEmptyReturnStatusResponse(res, emptyReturnStatusCode);
     }
-  }, 20000);
+  }
 
-  upstreamRes.on('data', chunk => {
-    const decoded = decoder.write(chunk);
-    const transformed = transformSSEText(decoded, rmState, sseState);
-    if (transformed) {
-      res.write(transformed);
+  let finalBuffer = rawBuffer;
+
+  if (removeLeadingSpace) {
+    if (sse) {
+      const rmState = createLeadingSpaceState();
+      finalBuffer = transformSSEBuffer(rawBuffer, rmState);
+    } else {
+      const rmState = createLeadingSpaceState();
+      finalBuffer = transformBufferedResponse(
+        rawBuffer,
+        responseHeaders['content-type'],
+        rmState
+      );
     }
-  });
+  }
 
-  upstreamRes.on('end', () => {
-    let tailOutput = '';
-
-    const finalDecoded = decoder.end();
-    if (finalDecoded) {
-      tailOutput += transformSSEText(finalDecoded, rmState, sseState);
-    }
-
-    if (sseState.buffer) {
-      tailOutput += processSSEEvent(sseState.buffer, rmState);
-      sseState.buffer = '';
-    }
-
-    if (tailOutput) {
-      res.write(tailOutput);
-    }
-
-    if (heartbeatInterval) clearInterval(heartbeatInterval);
-    res.end();
-  });
-
-  upstreamRes.on('error', err => {
-    if (heartbeatInterval) clearInterval(heartbeatInterval);
-    console.error('[auto-switch] upstream rm_sp SSE error:', err);
-    try { res.end(); } catch (_) {}
-  });
-
-  res.on('close', () => {
-    if (heartbeatInterval) clearInterval(heartbeatInterval);
-  });
+  responseHeaders['content-length'] = Buffer.byteLength(finalBuffer);
+  res.writeHead(upstreamStatus, responseHeaders);
+  res.end(finalBuffer);
 }
 
-function pipeUpstreamResponseWithRmSpBuffered(upstreamRes, res) {
-  const chunks = [];
-  const rmState = createLeadingSpaceState();
-
-  upstreamRes.on('data', chunk => {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  });
-
-  upstreamRes.on('end', () => {
-    const responseHeaders = { ...upstreamRes.headers };
-    responseHeaders['access-control-allow-origin'] = '*';
-
-    delete responseHeaders['content-length'];
-    delete responseHeaders['transfer-encoding'];
-
-    const rawBuffer = Buffer.concat(chunks);
-    const finalBuffer = transformBufferedResponse(
-      rawBuffer,
-      responseHeaders['content-type'],
-      rmState
-    );
-
-    responseHeaders['content-length'] = Buffer.byteLength(finalBuffer);
-
-    res.writeHead(upstreamRes.statusCode || 500, responseHeaders);
-    res.end(finalBuffer);
-  });
-
-  upstreamRes.on('error', err => {
-    console.error('[auto-switch] upstream rm_sp buffered error:', err);
-    setCorsHeaders(res);
-    res.writeHead(502, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({
-      error: 'Bad Gateway',
-      message: err.message
-    }));
-  });
-}
-
-function proxyRequest(req, res, targetUrl, bodyBuffer, headers, preferSSE, removeLeadingSpace) {
+function proxyRequest(req, res, targetUrl, bodyBuffer, headers, preferSSE, removeLeadingSpace, emptyReturnStatusCode) {
   const urlObj = new URL(targetUrl);
   const client = urlObj.protocol === 'https:' ? https : http;
 
-  if (removeLeadingSpace) {
+  if (removeLeadingSpace || emptyReturnStatusCode) {
     // 为了能安全改写响应内容，尽量要求上游返回未压缩内容
     headers['accept-encoding'] = 'identity';
   }
@@ -693,20 +804,34 @@ function proxyRequest(req, res, targetUrl, bodyBuffer, headers, preferSSE, remov
     const contentEncoding = String(upstreamRes.headers['content-encoding'] || '').trim().toLowerCase();
     const responseIsEncoded = !!contentEncoding && contentEncoding !== 'identity';
 
-    if (!removeLeadingSpace) {
+    if (!removeLeadingSpace && !emptyReturnStatusCode) {
       return pipeRawUpstreamResponse(upstreamRes, res, preferSSE);
     }
 
     if (responseIsEncoded) {
-      console.warn('[auto-switch] rm_sp skipped because upstream response is encoded:', contentEncoding);
+      console.warn('[auto-switch] response transform/check skipped because upstream response is encoded:', contentEncoding);
       return pipeRawUpstreamResponse(upstreamRes, res, preferSSE);
     }
 
-    if (isSSEResponse(upstreamRes.headers, preferSSE)) {
-      return pipeUpstreamResponseWithRmSpSSE(upstreamRes, res);
-    }
-
-    return pipeUpstreamResponseWithRmSpBuffered(upstreamRes, res);
+    pipeUpstreamResponseBufferedWithChecks(
+      upstreamRes,
+      res,
+      preferSSE,
+      removeLeadingSpace,
+      emptyReturnStatusCode
+    ).catch(err => {
+      console.error('[auto-switch] buffered response handling error:', err);
+      if (!res.headersSent) {
+        setCorsHeaders(res);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          error: 'Bad Gateway',
+          message: err.message
+        }));
+      } else {
+        try { res.end(); } catch (_) {}
+      }
+    });
   });
 
   upstreamReq.on('error', err => {
@@ -746,6 +871,7 @@ const server = http.createServer(async (req, res) => {
     let bodyOverride = null;
     let directStatusCode = null;
     let removeLeadingSpace = false;
+    let emptyReturnStatusCode = null;
 
     if (!['GET', 'HEAD'].includes(req.method)) {
       bodyBuffer = await collectRequestBody(req);
@@ -759,6 +885,7 @@ const server = http.createServer(async (req, res) => {
             const originalModel = String(requestBody.model).trim();
             const decision = processModelString(originalModel, requestBody.messages);
             removeLeadingSpace = !!decision.removeLeadingSpace;
+            emptyReturnStatusCode = decision.emptyReturnStatusCode || null;
 
             if (decision.action === 'status') {
               directStatusCode = decision.statusCode;
@@ -770,8 +897,8 @@ const server = http.createServer(async (req, res) => {
                 requestBody.model = finalModel;
                 bodyOverride = Buffer.from(JSON.stringify(requestBody), 'utf8');
                 console.log(`[auto-switch] Model Switch: ${originalModel} -> ${finalModel}`);
-              } else if (removeLeadingSpace) {
-                console.log(`[auto-switch] rm_sp enabled: ${originalModel}`);
+              } else if (removeLeadingSpace || emptyReturnStatusCode) {
+                console.log(`[auto-switch] flags enabled: rm_sp=${removeLeadingSpace}, er_sc=${emptyReturnStatusCode || ''} for model=${originalModel}`);
               }
             }
           }
@@ -815,7 +942,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     const preferSSE = String(req.headers.accept || '').includes('text/event-stream');
-    return proxyRequest(req, res, targetUrl, finalBody, headers, preferSSE, removeLeadingSpace);
+    return proxyRequest(
+      req,
+      res,
+      targetUrl,
+      finalBody,
+      headers,
+      preferSSE,
+      removeLeadingSpace,
+      emptyReturnStatusCode
+    );
   } catch (err) {
     console.error('[auto-switch] server error:', err);
     setCorsHeaders(res);
