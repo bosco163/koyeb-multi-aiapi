@@ -55,7 +55,7 @@ COPY auto-switch/server.js /app/auto-switch/server.js
 COPY auto-switch/patch-server.js /app/auto-switch/patch-server.js
 
 # 自动给 server.js 打稳定性补丁
-RUN node /app/auto-switch/patch-server.js
+RUN node /app/auto-switch/patch-server.js && node --check /app/auto-switch/server.js
 
 # 8. 启动脚本
 RUN cat > /app/start-ds2api.sh << 'EOF'
