@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
     && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update && apt-get install -y nodejs
+    && apt-get update && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
 
 # 3. 安装 Go 1.24
 RUN curl -fsSL https://go.dev/dl/go1.24.0.linux-amd64.tar.gz | tar -C /usr/local -xz
@@ -51,6 +52,10 @@ FROM base
 # 7. Auto-switch 服务目录
 RUN mkdir -p /app/auto-switch
 COPY auto-switch/server.js /app/auto-switch/server.js
+COPY auto-switch/patch-server.js /app/auto-switch/patch-server.js
+
+# 自动给 server.js 打稳定性补丁
+RUN node /app/auto-switch/patch-server.js
 
 # 8. 启动脚本
 RUN cat > /app/start-ds2api.sh << 'EOF'
