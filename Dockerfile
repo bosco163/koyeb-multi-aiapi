@@ -31,6 +31,9 @@ RUN git clone https://github.com/travisvn/openai-edge-tts.git . \
 # 5. DS2API
 WORKDIR /app/deepseek
 RUN git clone https://github.com/CJackHwang/ds2api.git .
+RUN mkdir -p /data
+COPY config.json /data/config.json
+ENV DS2API_CONFIG_PATH=/data/config.json
 WORKDIR /app/deepseek/webui
 RUN npm install && npm run build
 WORKDIR /app/deepseek
