@@ -31,15 +31,17 @@ RUN git clone https://github.com/travisvn/openai-edge-tts.git . \
 # 5. DS2API
 WORKDIR /app/deepseek
 RUN git clone https://github.com/CJackHwang/ds2api.git .
-RUN mkdir -p /data
-COPY config.json /data/config.json
-ENV DS2API_CONFIG_PATH=/data/config.json
 WORKDIR /app/deepseek/webui
 RUN npm install && npm run build
 WORKDIR /app/deepseek
 RUN go build -ldflags="-s -w" -o ds2api ./cmd/ds2api \
     && mkdir -p caches data logs static/admin \
     && chmod -R 777 caches data logs
+
+# 把预设配置放进容器
+RUN mkdir -p /data
+COPY config.json /data/config.json
+ENV DS2API_CONFIG_PATH=/data/config.json
 
 # 6. Qwen2API
 WORKDIR /app/qwen
