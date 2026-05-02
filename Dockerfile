@@ -38,11 +38,6 @@ RUN go build -ldflags="-s -w" -o ds2api ./cmd/ds2api \
     && mkdir -p caches data logs static/admin \
     && chmod -R 777 caches data logs
 
-# 把预设配置放进容器
-RUN mkdir -p /data
-COPY config.json /data/config.json
-ENV DS2API_CONFIG_PATH=/data/config.json
-
 # 6. Qwen2API
 WORKDIR /app/qwen
 RUN git clone https://github.com/Rfym21/Qwen2API.git . \
