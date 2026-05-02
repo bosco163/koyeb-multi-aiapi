@@ -1,0 +1,21 @@
+{
+  "keys": {
+    "admin_key": "",
+    "allowed_api_keys": ["", ""]
+  },
+  "accounts": [
+    {
+      "username": "",
+      "password": ""
+    }
+  ],
+  "current_input_file": {
+    "enabled": true,
+    "min_chars": 9000,
+    "max_chars": 100000,
+    "filename": "history.txt"
+  },
+  "auto_delete": {
+    "mode": "single"
+  }
+}
