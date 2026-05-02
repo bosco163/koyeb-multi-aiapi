@@ -90,7 +90,7 @@ function isSSEResponse(headers, preferSSE) {`,
 'writeWithBackpressure'
 );
 
-// 3. 精准替换几个高风险 res.write
+// 3. 替换常见 res.write 为带反压的写法
 replaceAll(
 `if (!res.writableEnded) {
       res.write(chunk);
@@ -151,7 +151,7 @@ replaceAll(
 'outgoingEvent write'
 );
 
-// 4. 修复 proxyRequestEarlySSE 里面 req.close 误杀上游的问题
+// 4. 修复 proxyRequestEarlySSE 里的 req.close 误杀上游问题
 replaceOnce(
 `  req.on('close', () => {
     try {
@@ -174,14 +174,14 @@ replaceOnce(
 'early SSE close handler'
 );
 
-// 5. 修复 proxyRequest 里面 req.close 误杀上游的问题
+// 5. 修复 proxyRequest 里的 req.close 误杀上游问题
 replaceOnce(
 `  req.on('close', () => {
     try {
       upstreamReq.destroy();
     } catch (_) {}
   });`,
-` .on('close', () => {
+`  res.on('close', () => {
     if (res.writableEnded) {
       return;
     }
@@ -210,6 +210,13 @@ replaceOnce(
 
     // 如果是流式请求，且没有 er_sc，需要尽早开始响应并发送心跳。`,
 'accept-encoding identity'
+);
+
+// 7. 防止上次错误补丁残留。如果源文件里已经被错误改成 ".on"，这里自动修正。
+replaceAll(
+` .on('close', () => {`,
+`  res.on('close', () => {`,
+'fix bad previous close handler'
 );
 
 fs.writeFileSync(file, s);
